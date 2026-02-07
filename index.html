@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>出席管理</title>
+
+<style>
+body{font-family:sans-serif;background:#f4f6f9;margin:0;padding:10px;}
+.card{background:#fff;border-radius:14px;padding:15px;margin:10px 0;box-shadow:0 4px 10px rgba(0,0,0,0.1);}
+input,button,select{width:100%;padding:10px;margin:5px 0;border-radius:8px;border:1px solid #ccc;font-size:16px;}
+button{background:#3b82f6;color:#fff;border:none;}
+button.gray{background:#6b7280;}
+button.red{background:#ef4444;}
+.out{color:#ef4444;font-weight:bold;}
+.safe{color:#10b981;font-weight:bold;}
+.table{display:grid;grid-template-columns:repeat(4,1fr);gap:5px;}
+.cell{background:#e5e7eb;padding:8px;border-radius:6px;text-align:center;font-size:14px;}
+</style>
+
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/12.9.0/firebase-app.js";
+import { getFirestore, doc, setDoc, getDocs, deleteDoc, collection } from "https://www.gstatic.com/firebasejs/12.9.0/firebase-firestore.js";
+
+const firebaseConfig = {
+  apiKey: "AIzaSyA3DMJJEFAL7v9o8Ex0ltbuL295aiFzmY8",
+  authDomain: "gakkou-c2273.firebaseapp.com",
+  projectId: "gakkou-c2273",
+  storageBucket: "gakkou-c2273.firebasestorage.app",
+  messagingSenderId: "1027874857140",
+  appId: "1:1027874857140:web:8bdcd29f6338660648b7e1"
+};
+
+const app = initializeApp(firebaseConfig);
+const db = getFirestore(app);
+
+let user="";
+
+window.login=()=>{
+  user=document.getElementById("loginName").value;
+  if(!user){alert("名前入れて");return;}
+  document.getElementById("login").style.display="none";
+  document.getElementById("main").style.display="block";
+  loadData();
+  loadTT();
+}
+
+window.addSubject=async()=>{
+  const subject=document.getElementById("subject").value;
+  const unit=Number(document.getElementById("unit").value);
+  if(!subject||!unit)return;
+  await setDoc(doc(db,"data",user+"_"+subject),{user,subject,unit,absence:0,late:0});
+  loadData();
+}
+
+window.deleteSub=async(subject)=>{
+  await deleteDoc(doc(db,"data",user+"_"+subject));
+  loadData();
+}
+
+window.changeOne=async(subject,type,delta)=>{
+  const qs=await getDocs(collection(db,"data"));
+  qs.forEach(async d=>{
+    const v=d.data();
+    if(v.user===user&&v.subject===subject){
+      v[type]=Math.max(0,(v[type]||0)+delta);
+      await setDoc(doc(db,"data",user+"_"+subject),v);
+      loadData();
+    }
+  });
+}
+
+async function loadData(){
+  const qs=await getDocs(collection(db,"data"));
+  let html="";
+  qs.forEach(d=>{
+    const v=d.data();
+    if(v.user!==user)return;
+
+    const total=v.absence+Math.floor(v.late/3);
+    const limit=v.unit*10.5;
+    const out=total>limit;
+
+    html+=`
+    <div class="card">
+      <b>${v.subject}</b><br>
+      単位:${v.unit}<br>
+      欠席:${v.absence} / 遅刻:${v.late}<br>
+      欠席換算:${total} / 上限:${limit}<br>
+      <span class="${out?'out':'safe'}">${out?'OUT':'OK'}</span><br><br>
+
+      <button onclick="changeOne('${v.subject}','absence',1)">欠席＋1</button>
+      <button class="gray" onclick="changeOne('${v.subject}','absence',-1)">欠席−1</button>
+
+      <button onclick="changeOne('${v.subject}','late',1)">遅刻＋1</button>
+      <button class="gray" onclick="changeOne('${v.subject}','late',-1)">遅刻−1</button>
+
+      <button class="red" onclick="deleteSub('${v.subject}')">削除</button>
+    </div>`;
+  });
+  document.getElementById("list").innerHTML=html;
+}
+
+/* ---------- 時間割 ---------- */
+
+window.saveTT=async()=>{
+  const day=document.getElementById("day").value;
+  const p=document.getElementById("period").value;
+  const sub=document.getElementById("ttSub").value;
+  if(!sub)return;
+  await setDoc(doc(db,"timetable",user+"_"+day+"_"+p),{user,day,p,sub});
+  loadTT();
+}
+
+async function loadTT(){
+  const qs=await getDocs(collection(db,"timetable"));
+  let map={};
+  qs.forEach(d=>{
+    const v=d.data();
+    if(v.user!==user)return;
+    map[v.day+"_"+v.p]=v.sub;
+  });
+
+  let html="";
+  const days=["月","火","水","木","金"];
+  for(let d of days){
+    html+=`<b>${d}</b><div class="table">`;
+    for(let p=1;p<=4;p++){
+      const key=d+"_"+p;
+      html+=`<div class="cell">${map[key]||"-"}</div>`;
+    }
+    html+="</div><br>";
+  }
+  document.getElementById("tt").innerHTML=html;
+}
+</script>
+</head>
+
+<body>
+
+<div id="login" class="card">
+<h3>ログイン</h3>
+<input id="loginName" placeholder="自分の名前">
+<button onclick="login()">入る</button>
+</div>
+
+<div id="main" style="display:none">
+
+<div class="card">
+<h3>科目追加</h3>
+<input id="subject" placeholder="科目名">
+<input id="unit" type="number" placeholder="単位数">
+<button onclick="addSubject()">追加</button>
+</div>
+
+<div id="list"></div>
+
+<div class="card">
+<h3>時間割登録</h3>
+<select id="day"><option>月</option><option>火</option><option>水</option><option>木</option><option>金</option></select>
+<select id="period">
+<option value="1">9限</option>
+<option value="2">10限</option>
+<option value="3">11限</option>
+<option value="4">12限</option>
+</select>
+<input id="ttSub" placeholder="科目名">
+<button onclick="saveTT()">登録</button>
+</div>
+
+<div class="card">
+<h3>時間割</h3>
+<div id="tt"></div>
+</div>
+
+</div>
+</body>
+</html>
